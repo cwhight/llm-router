@@ -135,18 +135,42 @@ echo "Configuring Claude Code ($SCOPE)..."
 
 LLM_ROUTER_INSTRUCTIONS='# LLM Router
 
-`llm-router` is installed locally and routes simple tasks to Ollama (free, local) instead of using Claude tokens.
+`llm-router` is installed locally and routes simple tasks to Ollama (free, local) instead of using Claude tokens. Use it for bulk, low-complexity work.
 
-**Use llm-router for:** summarising, extracting, formatting, classifying, simple code gen, rewriting.
-**Stay on Claude for:** multi-file code, architecture, complex reasoning, agentic tasks, tool use.
+**Use llm-router for:**
+- Summarising files or text: `llm-router ask "summarise this" < file.md`
+- Extracting structured data: `llm-router route --task extract --input "text" --format json`
+- Formatting or reformatting: `llm-router route --task format --input "text"`
+- Classification: `llm-router route --task classify --input "text"`
+- Simple explanations: `llm-router ask "explain what this does" < snippet.go`
+- Simple code generation: `llm-router route --task simple-code --input "write a function that..."`
+- Writing prose from context — PR descriptions, commit messages, ADR drafts, Slack replies
 
-```bash
-llm-router ask "summarise this" < file.md
-llm-router route --task extract --input "text" --format json
-llm-router stats
-```
+**Decomposition pattern — Claude plans, Ollama executes:**
 
-**Transparency rule:** Before calling llm-router, always state in your response that you are routing the task to Ollama. Example: "Routing this to Ollama." This lets the user see when local models are being used instead of Claude.'
+For complex tasks, Claude should read the codebase, make architectural decisions, and plan the changes. Then decompose the implementation into self-contained steps and route each one to Ollama. Claude handles tool calls (file edits, git, gh) with the results.
+
+Example — multi-file code change:
+1. Claude reads codebase, decides what needs changing and where
+2. For each file, Claude writes a precise prompt with full context and routes to Ollama:
+   `llm-router ask "Given this Go handler pattern: [paste existing handler], write a new handler called GetUser that calls svc.GetUser and returns the proto response"`
+3. Claude takes the output, applies it via Edit tool, moves to next file
+
+Example — PR description:
+1. Claude determines the key changes and structure
+2. Routes: `llm-router ask "Write a PR description in markdown. Changes: X, Y, Z. Format: Description, What changed, Why, Testing sections"`
+3. Claude uses output in `gh pr edit --body`
+
+**The rule:** if the task can be fully specified in a single prompt without needing to read files or make decisions, Ollama handles it. If it requires exploring the codebase, making judgment calls, or coordinating across files, Claude does it — then hands off the self-contained steps.
+
+**Do NOT use llm-router for:**
+- Reading/exploring the codebase — stay on Claude
+- Architecture and design decisions — stay on Claude
+- Complex reasoning and trade-offs — stay on Claude
+- Deciding WHAT to change and WHERE — stay on Claude
+- Tool calls (file edits, git, gh commands) — stay on Claude
+
+**Transparency rule:** Before calling llm-router, always state in your response that you are routing the task to Ollama. This lets the user see when local models are being used instead of Claude.'
 
 if [ "$SCOPE" = "global" ]; then
     SETTINGS_FILE="$HOME/.claude/settings.json"
