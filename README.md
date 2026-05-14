@@ -46,22 +46,36 @@ Every routed task is scored:
 
 Results are logged to `benchmarks/results.jsonl`. The router periodically analyses this data and adjusts routing thresholds. If Ollama 8B is consistently scoring 8+ on `explain` tasks, it gets promoted. If it's scoring 4 on `simple-code`, that category gets bumped to 70B or Claude.
 
-## Setup
+## Install
 
 ```bash
-# Install Ollama
-./scripts/setup.sh
+git clone https://github.com/cwhight/llm-router.git
+cd llm-router
 
-# Pull default models
-ollama pull llama3.1:8b
-ollama pull llama3.1:70b  # optional, needs 40GB+ RAM
+# Global — every Claude Code session on your machine uses llm-router
+./scripts/install.sh --global
 
-# Configure
-cp config.example.yaml config.yaml
-# Edit config.yaml with your Claude API key
+# Project — only the current repo's Claude Code sessions use llm-router
+./scripts/install.sh --project
 
-# Run
-go run ./cmd/router/
+# Interactive — prompts you to choose
+./scripts/install.sh
+```
+
+The installer:
+1. Installs Ollama (if not present)
+2. Pulls llama3.1:8b model
+3. Builds and installs `llm-router` binary to `/usr/local/bin`
+4. Creates config at `~/.config/llm-router/config.yaml`
+5. Adds permissions and instructions to Claude Code settings (global or project)
+
+**Global install** writes to `~/.claude/settings.json` and `~/.claude/CLAUDE.md` — every Claude Code instance on your machine sees it.
+
+**Project install** writes to `.claude/settings.json` and `CLAUDE.md` in the current repo — only that project's sessions see it.
+
+Optional: pull the 70B model for higher quality on medium-complexity tasks:
+```bash
+ollama pull llama3.1:70b  # needs 40GB+ RAM
 ```
 
 ## Usage

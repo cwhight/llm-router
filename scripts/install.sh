@@ -1,12 +1,65 @@
 #!/bin/bash
 set -euo pipefail
 
+SCOPE="prompt"
+
+for arg in "$@"; do
+    case $arg in
+        --global) SCOPE="global" ;;
+        --project) SCOPE="project" ;;
+        --help|-h) usage; exit 0 ;;
+    esac
+done
+
+usage() {
+    cat <<'USAGE'
+llm-router installer
+
+Usage: ./scripts/install.sh [--global|--project]
+
+Options:
+  --global   Install llm-router and configure it for ALL Claude Code sessions
+             (writes to ~/.claude/settings.json and ~/.claude/CLAUDE.md)
+
+  --project  Install llm-router and configure it for THIS project only
+             (writes to .claude/settings.json and CLAUDE.md in current repo)
+
+  (no flag)  Prompts you to choose
+
+What it does:
+  1. Installs Ollama (if not present)
+  2. Pulls llama3.1:8b model
+  3. Builds and installs llm-router binary to /usr/local/bin
+  4. Creates config at ~/.config/llm-router/config.yaml
+  5. Adds llm-router permissions and instructions to Claude Code settings
+USAGE
+}
+
 echo "=== llm-router install ==="
+echo ""
+
+# ── 1. Ask scope if not specified ────────────────────────────────
+if [ "$SCOPE" = "prompt" ]; then
+    echo "How do you want to configure Claude Code integration?"
+    echo ""
+    echo "  1) Global  — every Claude Code session uses llm-router automatically"
+    echo "  2) Project — only this repo's Claude Code sessions use llm-router"
+    echo ""
+    read -p "Choose (1/2): " choice
+    case $choice in
+        1) SCOPE="global" ;;
+        2) SCOPE="project" ;;
+        *) echo "Invalid choice"; exit 1 ;;
+    esac
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
-# 1. Install Ollama if not present
+# ── 2. Install Ollama ────────────────────────────────────────────
+echo ""
+echo "Checking Ollama..."
+
 if command -v ollama &> /dev/null; then
     echo "✓ Ollama installed"
 else
@@ -21,48 +74,146 @@ else
     fi
 fi
 
-# 2. Start Ollama if not running
+# Start Ollama if not running
 if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
     echo "Starting Ollama..."
     ollama serve &>/dev/null &
     sleep 3
 fi
 
-# 3. Pull default model
-echo "Pulling llama3.1:8b..."
-ollama pull llama3.1:8b
+# Pull model
+if ! ollama list 2>/dev/null | grep -q "llama3.1:8b"; then
+    echo "Pulling llama3.1:8b (4.7GB)..."
+    ollama pull llama3.1:8b
+else
+    echo "✓ llama3.1:8b available"
+fi
 
-# 4. Build the Go binary
+# ── 3. Build and install binary ──────────────────────────────────
+echo ""
 echo "Building llm-router..."
+
+if ! command -v go &> /dev/null; then
+    echo "✗ Go not found. Install: https://go.dev/dl/"
+    exit 1
+fi
+
 cd "$REPO_DIR"
 go build -o llm-router ./cmd/router/
 
-# 5. Install to /usr/local/bin
 echo "Installing to /usr/local/bin/llm-router..."
 sudo cp llm-router /usr/local/bin/llm-router
 sudo chmod +x /usr/local/bin/llm-router
+rm llm-router
 
-# 6. Create config if not exists
+# ── 4. Create config ─────────────────────────────────────────────
 CONFIG_DIR="$HOME/.config/llm-router"
-mkdir -p "$CONFIG_DIR"
+mkdir -p "$CONFIG_DIR/benchmarks"
+
 if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
     cp config.example.yaml "$CONFIG_DIR/config.yaml"
     echo "✓ Config created at $CONFIG_DIR/config.yaml"
-    echo "  → Set ANTHROPIC_API_KEY in your environment"
 else
     echo "✓ Config already exists at $CONFIG_DIR/config.yaml"
 fi
 
-# 7. Create benchmarks dir
-mkdir -p "$CONFIG_DIR/benchmarks"
+# ── 5. Configure Claude Code ─────────────────────────────────────
+echo ""
+echo "Configuring Claude Code ($SCOPE)..."
+
+LLM_ROUTER_INSTRUCTIONS='# LLM Router
+
+`llm-router` is installed locally and routes simple tasks to Ollama (free, local) instead of using Claude tokens.
+
+**Use llm-router for:** summarising, extracting, formatting, classifying, simple code gen, rewriting.
+**Stay on Claude for:** multi-file code, architecture, complex reasoning, agentic tasks, tool use.
+
+```bash
+llm-router ask "summarise this" < file.md
+llm-router route --task extract --input "text" --format json
+llm-router stats
+```'
+
+if [ "$SCOPE" = "global" ]; then
+    SETTINGS_FILE="$HOME/.claude/settings.json"
+    CLAUDE_MD="$HOME/.claude/CLAUDE.md"
+    mkdir -p "$HOME/.claude"
+else
+    SETTINGS_FILE=".claude/settings.json"
+    CLAUDE_MD="CLAUDE.md"
+    mkdir -p ".claude"
+fi
+
+# Add permissions if not present
+if [ -f "$SETTINGS_FILE" ]; then
+    if ! grep -q "llm-router" "$SETTINGS_FILE"; then
+        # Use python to safely add to the allow array
+        python3 -c "
+import json
+with open('$SETTINGS_FILE') as f:
+    data = json.load(f)
+perms = data.setdefault('permissions', {}).setdefault('allow', [])
+for p in ['Bash(llm-router:*)', 'Bash(ollama:*)']:
+    if p not in perms:
+        perms.append(p)
+with open('$SETTINGS_FILE', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+        echo "✓ Added llm-router permissions to $SETTINGS_FILE"
+    else
+        echo "✓ Permissions already present in $SETTINGS_FILE"
+    fi
+else
+    cat > "$SETTINGS_FILE" <<'SETTINGS'
+{
+  "permissions": {
+    "allow": [
+      "Bash(llm-router:*)",
+      "Bash(ollama:*)"
+    ]
+  }
+}
+SETTINGS
+    echo "✓ Created $SETTINGS_FILE with llm-router permissions"
+fi
+
+# Add instructions to CLAUDE.md
+if [ -f "$CLAUDE_MD" ]; then
+    if ! grep -q "llm-router" "$CLAUDE_MD"; then
+        echo "" >> "$CLAUDE_MD"
+        echo "$LLM_ROUTER_INSTRUCTIONS" >> "$CLAUDE_MD"
+        echo "✓ Added llm-router instructions to $CLAUDE_MD"
+    else
+        echo "✓ Instructions already present in $CLAUDE_MD"
+    fi
+else
+    echo "$LLM_ROUTER_INSTRUCTIONS" > "$CLAUDE_MD"
+    echo "✓ Created $CLAUDE_MD with llm-router instructions"
+fi
+
+# ── 6. Verify ─────────────────────────────────────────────────────
+echo ""
+echo "Verifying installation..."
+
+if llm-router health 2>/dev/null; then
+    echo "✓ llm-router healthy"
+else
+    echo "⚠ Ollama not reachable — llm-router will fall back to Claude"
+fi
 
 echo ""
-echo "=== Installed ==="
-echo "  Binary:     /usr/local/bin/llm-router"
-echo "  Config:     $CONFIG_DIR/config.yaml"
-echo "  Benchmarks: $CONFIG_DIR/benchmarks/"
+echo "=== Installed ($SCOPE) ==="
+echo ""
+echo "  Binary:      /usr/local/bin/llm-router"
+echo "  Config:      $CONFIG_DIR/config.yaml"
+echo "  Benchmarks:  $CONFIG_DIR/benchmarks/"
+echo "  Claude Code: $SETTINGS_FILE"
+echo "  Instructions: $CLAUDE_MD"
 echo ""
 echo "Usage:"
-echo "  llm-router route --task summarise --input 'text here'"
+echo "  llm-router ask 'summarise this README' < README.md"
+echo "  llm-router route --task extract --input 'text' --format json"
 echo "  llm-router stats"
-echo "  llm-router health"
+echo ""
+echo "Optional: pull the 70B model for better quality (needs 40GB+ RAM):"
+echo "  ollama pull llama3.1:70b"
