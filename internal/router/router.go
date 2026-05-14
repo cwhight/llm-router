@@ -14,9 +14,10 @@ import (
 )
 
 type Task struct {
-	Category string
-	System   string
-	Input    string
+	Category      string
+	System        string
+	Input         string
+	ModelOverride string
 }
 
 type Result struct {
@@ -48,7 +49,12 @@ func New(cfg *config.Config, bench *benchmark.Store) *Router {
 }
 
 func (r *Router) Route(ctx context.Context, task Task) (*Result, error) {
-	model := r.selectModel(task.Category)
+	var model string
+	if task.ModelOverride != "" {
+		model = task.ModelOverride
+	} else {
+		model = r.selectModel(task.Category)
+	}
 
 	var result *Result
 	var err error
@@ -186,10 +192,15 @@ func (r *Router) resolveClaudeModel(model string) string {
 		return r.cfg.Claude.DefaultModel
 	}
 	switch parts[1] {
-	case "default":
+	case "default", "sonnet":
 		return r.cfg.Claude.DefaultModel
 	case "opus":
 		return r.cfg.Claude.OpusModel
+	case "haiku":
+		if r.cfg.Claude.HaikuModel != "" {
+			return r.cfg.Claude.HaikuModel
+		}
+		return "claude-haiku-4-5-20251001"
 	default:
 		return parts[1]
 	}

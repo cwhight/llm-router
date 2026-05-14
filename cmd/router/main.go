@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -44,6 +45,8 @@ func main() {
 		cmdRoute(r, os.Args[2:])
 	case "ask":
 		cmdAsk(r, os.Args[2:])
+	case "record":
+		cmdRecord(bench, os.Args[2:])
 	case "stats":
 		cmdStats(r)
 	case "health":
@@ -55,7 +58,7 @@ func main() {
 }
 
 func cmdRoute(r *router.Router, args []string) {
-	var task, system, input, format string
+	var task, system, input, format, model string
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -75,11 +78,12 @@ func cmdRoute(r *router.Router, args []string) {
 			input = string(data)
 		case "--format":
 			i++; format = args[i]
+		case "--model":
+			i++; model = args[i]
 		}
 	}
 
 	if task == "" || input == "" {
-		// Check stdin
 		if input == "" {
 			stdinData, err := readStdin()
 			if err == nil && stdinData != "" {
@@ -94,9 +98,10 @@ func cmdRoute(r *router.Router, args []string) {
 	}
 
 	result, err := r.Route(context.Background(), router.Task{
-		Category: task,
-		System:   system,
-		Input:    input,
+		Category:      task,
+		System:        system,
+		Input:         input,
+		ModelOverride: model,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "route error: %v\n", err)
@@ -108,12 +113,14 @@ func cmdRoute(r *router.Router, args []string) {
 
 // ask: natural language interface — auto-classifies the task category
 func cmdAsk(r *router.Router, args []string) {
-	var input, format string
+	var input, format, model string
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--format":
 			i++; format = args[i]
+		case "--model":
+			i++; model = args[i]
 		default:
 			if input == "" {
 				input = strings.Join(args[i:], " ")
@@ -138,8 +145,9 @@ func cmdAsk(r *router.Router, args []string) {
 	category := classifyTask(input)
 
 	result, err := r.Route(context.Background(), router.Task{
-		Category: category,
-		Input:    input,
+		Category:      category,
+		Input:         input,
+		ModelOverride: model,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "route error: %v\n", err)
@@ -183,6 +191,45 @@ func containsAny(s string, substrs ...string) bool {
 		}
 	}
 	return false
+}
+
+func cmdRecord(bench *benchmark.Store, args []string) {
+	var category, model string
+	var quality, latency float64
+	var inputTokens, outputTokens int
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--category":
+			i++; category = args[i]
+		case "--model":
+			i++; model = args[i]
+		case "--quality":
+			i++; quality, _ = strconv.ParseFloat(args[i], 64)
+		case "--input-tokens":
+			i++; inputTokens, _ = strconv.Atoi(args[i])
+		case "--output-tokens":
+			i++; outputTokens, _ = strconv.Atoi(args[i])
+		case "--latency":
+			i++; latency, _ = strconv.ParseFloat(args[i], 64)
+		}
+	}
+
+	if category == "" || model == "" {
+		fmt.Fprintln(os.Stderr, "Usage: llm-router record --category <cat> --model <model> --quality <0-10>")
+		os.Exit(1)
+	}
+
+	_ = bench.Record(benchmark.Result{
+		Category:     category,
+		Model:        model,
+		Quality:      quality,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		Latency:      latency,
+	})
+
+	fmt.Fprintf(os.Stderr, "recorded: %s | %s | quality=%.1f\n", category, model, quality)
 }
 
 func printResult(result *router.Result, format string) {
@@ -253,17 +300,17 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `llm-router — intelligent LLM task router
 
 Commands:
-  route   Route a task to the best model (explicit category)
-  ask     Natural language — auto-classifies and routes
-  stats   Show benchmark statistics
-  health  Check model availability
+  route    Route a task to the best model (explicit category)
+  ask      Natural language — auto-classifies and routes
+  record   Log an external result (e.g. from Claude Code subagents)
+  stats    Show benchmark statistics
+  health   Check model availability
 
 Examples:
   llm-router route --task summarise --input "long text here"
-  llm-router route --task extract --input-file data.txt --format json
+  llm-router route --task simple-code --model claude:haiku --input "..."
   llm-router ask "summarise this README" < README.md
-  llm-router ask "explain what this function does" --format json
-  echo "some text" | llm-router ask "extract all email addresses"
+  llm-router record --category simple-code --model claude:haiku --quality 8
   llm-router stats
   llm-router health`)
 }

@@ -32,7 +32,7 @@ Claude is excellent at complex reasoning but expensive for bulk operations. Loca
 | `format` | Low | Ollama 8B | Reformat code, convert markdown |
 | `simple-code` | Medium | Ollama 70B | Single function, simple script |
 | `rewrite` | Medium | Ollama 70B | Rewrite text, change tone |
-| `explain` | Medium | Ollama 70B | Explain a concept, document code |
+| `explain` | Medium | Claude Haiku | Explain a concept, document code |
 | `complex-code` | High | Claude Sonnet | Multi-file changes, refactoring |
 | `reason` | High | Claude Opus | Architecture, planning, trade-offs |
 | `agent` | High | Claude Opus | Multi-step tool use, decisions |
@@ -82,14 +82,15 @@ ollama pull llama3.1:70b  # needs 40GB+ RAM
 
 ### CLI
 ```bash
-# Route a task
+# Route a task (auto-selects best model for category)
 llm-router route --task "summarise" --input "$(cat long-file.md)"
 
-# Route with explicit model override
-llm-router route --task "summarise" --model ollama:llama3.1:8b --input "..."
+# Override the model (skip auto-routing)
+llm-router route --task "simple-code" --model claude:haiku --input "..."
+llm-router route --task "explain" --model ollama:small --input "..."
 
-# Run benchmarks
-llm-router benchmark --category summarise
+# Natural language (auto-classifies category)
+llm-router ask "summarise this README" < README.md
 
 # View routing stats
 llm-router stats

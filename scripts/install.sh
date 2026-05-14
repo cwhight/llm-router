@@ -133,44 +133,44 @@ fi
 echo ""
 echo "Configuring Claude Code ($SCOPE)..."
 
-LLM_ROUTER_INSTRUCTIONS='# LLM Router
+LLM_ROUTER_INSTRUCTIONS='## Cost-Aware Model Routing
 
-`llm-router` is installed locally and routes simple tasks to Ollama (free, local) instead of using Claude tokens. Use it for bulk, low-complexity work.
+Opus is expensive. Always route code generation to the cheapest model that can do the job correctly.
 
-**Use llm-router for:**
-- Summarising files or text: `llm-router ask "summarise this" < file.md`
-- Extracting structured data: `llm-router route --task extract --input "text" --format json`
-- Formatting or reformatting: `llm-router route --task format --input "text"`
-- Classification: `llm-router route --task classify --input "text"`
-- Simple explanations: `llm-router ask "explain what this does" < snippet.go`
-- Simple code generation: `llm-router route --task simple-code --input "write a function that..."`
-- Writing prose from context — PR descriptions, commit messages, ADR drafts, Slack replies
+### Tier hierarchy (cheapest first):
+1. **Ollama via llm-router** ($0) — pure additive edits, struct fields, boilerplate, prose
+2. **Haiku subagent** (cheap) — formulaic code gen needing some judgment, test scaffolding, env var fields
+3. **Sonnet subagent** (mid) — when placement/correctness matters but does not need architectural reasoning
+4. **Opus (you, direct)** (expensive) — architecture, investigation, multi-file reasoning, correctness-sensitive logic
 
-**Decomposition pattern — Claude plans, Ollama executes:**
+### How to route:
 
-For complex tasks, Claude should read the codebase, make architectural decisions, and plan the changes. Then decompose the implementation into self-contained steps and route each one to Ollama. Claude handles tool calls (file edits, git, gh) with the results.
+**Haiku/Sonnet subagents** — use the Agent tool with `model: "haiku"` or `model: "sonnet"`:
+```
+Agent({
+  description: "Generate struct fields",
+  model: "haiku",
+  prompt: "Given this Go struct: [paste]. Add these fields: [spec]. Output only the complete struct."
+})
+```
 
-Example — multi-file code change:
-1. Claude reads codebase, decides what needs changing and where
-2. For each file, Claude writes a precise prompt with full context and routes to Ollama:
-   `llm-router ask "Given this Go handler pattern: [paste existing handler], write a new handler called GetUser that calls svc.GetUser and returns the proto response"`
-3. Claude takes the output, applies it via Edit tool, moves to next file
+**Ollama via llm-router** (installed at LLM_ROUTER_BIN):
+```bash
+LLM_ROUTER_BIN route --task simple-code --input "write a function that..."
+LLM_ROUTER_BIN route --task summarise --input "long text"
+LLM_ROUTER_BIN ask "summarise this" < file.md
+```
 
-Example — PR description:
-1. Claude determines the key changes and structure
-2. Routes: `llm-router ask "Write a PR description in markdown. Changes: X, Y, Z. Format: Description, What changed, Why, Testing sections"`
-3. Claude uses output in `gh pr edit --body`
+### Decision rules:
+- **Opus plans, cheaper models execute.** Read the codebase, decide what changes go where, write the precise prompt, then hand actual code writing to a cheaper model.
+- **Always verify output** from cheaper models before applying — especially placement relative to error paths, early returns, and resource cleanup.
+- **Ollama** for: summaries, extraction, formatting, classification, simple explanations, prose (PR descriptions, commit messages)
+- **Haiku** for: mechanical code gen where you give a precise spec and expect correct output
+- **Sonnet** for: code gen where the model needs to reason about context
+- **Stay on Opus** for: reading/exploring code, architecture decisions, complex reasoning, deciding WHAT to change and WHERE, tool calls
 
-**The rule:** if the task can be fully specified in a single prompt without needing to read files or make decisions, Ollama handles it. If it requires exploring the codebase, making judgment calls, or coordinating across files, Claude does it — then hands off the self-contained steps.
-
-**Do NOT use llm-router for:**
-- Reading/exploring the codebase — stay on Claude
-- Architecture and design decisions — stay on Claude
-- Complex reasoning and trade-offs — stay on Claude
-- Deciding WHAT to change and WHERE — stay on Claude
-- Tool calls (file edits, git, gh commands) — stay on Claude
-
-**Transparency rule:** Before calling llm-router, always state in your response that you are routing the task to Ollama. This lets the user see when local models are being used instead of Claude.'
+### Transparency rule:
+Before routing to a cheaper model, state which model and why.'
 
 if [ "$SCOPE" = "global" ]; then
     SETTINGS_FILE="$HOME/.claude/settings.json"
@@ -215,17 +215,20 @@ SETTINGS
     echo "✓ Created $SETTINGS_FILE with llm-router permissions"
 fi
 
-# Add instructions to CLAUDE.md
+# Add instructions to CLAUDE.md (substitute binary path)
+INSTALL_PATH="/usr/local/bin/llm-router"
+INSTRUCTIONS_RESOLVED="${LLM_ROUTER_INSTRUCTIONS//LLM_ROUTER_BIN/$INSTALL_PATH}"
+
 if [ -f "$CLAUDE_MD" ]; then
-    if ! grep -q "llm-router" "$CLAUDE_MD"; then
+    if ! grep -q "Cost-Aware Model Routing" "$CLAUDE_MD"; then
         echo "" >> "$CLAUDE_MD"
-        echo "$LLM_ROUTER_INSTRUCTIONS" >> "$CLAUDE_MD"
+        echo "$INSTRUCTIONS_RESOLVED" >> "$CLAUDE_MD"
         echo "✓ Added llm-router instructions to $CLAUDE_MD"
     else
         echo "✓ Instructions already present in $CLAUDE_MD"
     fi
 else
-    echo "$LLM_ROUTER_INSTRUCTIONS" > "$CLAUDE_MD"
+    echo "$INSTRUCTIONS_RESOLVED" > "$CLAUDE_MD"
     echo "✓ Created $CLAUDE_MD with llm-router instructions"
 fi
 

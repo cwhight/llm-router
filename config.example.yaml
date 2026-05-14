@@ -2,6 +2,7 @@ claude:
   api_key: "${ANTHROPIC_API_KEY}"
   default_model: claude-sonnet-4-6
   opus_model: claude-opus-4-7
+  haiku_model: claude-haiku-4-5-20251001
 
 ollama:
   host: "http://localhost:11434"
@@ -15,15 +16,16 @@ routing:
   quality_threshold: 7
 
   # Default routing rules (overridden by benchmark data)
+  # Tier order: ollama:small < ollama:large < claude:haiku < claude:sonnet < claude:opus
   defaults:
     summarise: ollama:small
     extract: ollama:small
     classify: ollama:small
     format: ollama:small
-    rewrite: ollama:small
-    simple-code: ollama:small
-    explain: ollama:small
-    complex-code: claude:default
+    rewrite: ollama:large
+    simple-code: ollama:large
+    explain: claude:haiku
+    complex-code: claude:sonnet
     reason: claude:opus
     agent: claude:opus
 

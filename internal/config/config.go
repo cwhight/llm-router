@@ -20,6 +20,7 @@ type ClaudeConfig struct {
 	APIKey       string `yaml:"api_key"`
 	DefaultModel string `yaml:"default_model"`
 	OpusModel    string `yaml:"opus_model"`
+	HaikuModel   string `yaml:"haiku_model"`
 }
 
 type OllamaConfig struct {
