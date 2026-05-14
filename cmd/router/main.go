@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -19,11 +20,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	configPath := envOrDefault("CONFIG_FILE", "config.yaml")
+	configPath := envOrDefault("LLM_ROUTER_CONFIG", config.DefaultConfigPath())
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
 		os.Exit(1)
+	}
+
+	if cfg.Benchmarks.ResultsFile == "" || cfg.Benchmarks.ResultsFile == "benchmarks/results.jsonl" {
+		cfg.Benchmarks.ResultsFile = config.DefaultBenchmarksPath()
 	}
 
 	bench, err := benchmark.NewStore(cfg.Benchmarks.ResultsFile)
@@ -37,6 +42,8 @@ func main() {
 	switch os.Args[1] {
 	case "route":
 		cmdRoute(r, os.Args[2:])
+	case "ask":
+		cmdAsk(r, os.Args[2:])
 	case "stats":
 		cmdStats(r)
 	case "health":
@@ -48,7 +55,7 @@ func main() {
 }
 
 func cmdRoute(r *router.Router, args []string) {
-	var task, system, input, model, format string
+	var task, system, input, format string
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -66,19 +73,25 @@ func cmdRoute(r *router.Router, args []string) {
 				os.Exit(1)
 			}
 			input = string(data)
-		case "--model":
-			i++; model = args[i]
 		case "--format":
 			i++; format = args[i]
 		}
 	}
 
 	if task == "" || input == "" {
-		fmt.Fprintln(os.Stderr, "Usage: llm-router route --task <category> --input <text> [--system <prompt>] [--model <override>] [--format json]")
-		os.Exit(1)
+		// Check stdin
+		if input == "" {
+			stdinData, err := readStdin()
+			if err == nil && stdinData != "" {
+				input = stdinData
+			}
+		}
+		if task == "" || input == "" {
+			fmt.Fprintln(os.Stderr, "Usage: llm-router route --task <category> --input <text>")
+			fmt.Fprintln(os.Stderr, "   or: echo 'text' | llm-router route --task <category>")
+			os.Exit(1)
+		}
 	}
-
-	_ = model // TODO: model override
 
 	result, err := r.Route(context.Background(), router.Task{
 		Category: task,
@@ -90,6 +103,89 @@ func cmdRoute(r *router.Router, args []string) {
 		os.Exit(1)
 	}
 
+	printResult(result, format)
+}
+
+// ask: natural language interface — auto-classifies the task category
+func cmdAsk(r *router.Router, args []string) {
+	var input, format string
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--format":
+			i++; format = args[i]
+		default:
+			if input == "" {
+				input = strings.Join(args[i:], " ")
+				break
+			}
+		}
+	}
+
+	if input == "" {
+		stdinData, err := readStdin()
+		if err == nil && stdinData != "" {
+			input = stdinData
+		}
+	}
+
+	if input == "" {
+		fmt.Fprintln(os.Stderr, "Usage: llm-router ask 'your question or task here'")
+		fmt.Fprintln(os.Stderr, "   or: echo 'text' | llm-router ask")
+		os.Exit(1)
+	}
+
+	category := classifyTask(input)
+
+	result, err := r.Route(context.Background(), router.Task{
+		Category: category,
+		Input:    input,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "route error: %v\n", err)
+		os.Exit(1)
+	}
+
+	printResult(result, format)
+}
+
+func classifyTask(input string) string {
+	lower := strings.ToLower(input)
+
+	switch {
+	case containsAny(lower, "summarise", "summarize", "summary", "tldr", "condense"):
+		return "summarise"
+	case containsAny(lower, "extract", "parse", "pull out", "get the", "find all"):
+		return "extract"
+	case containsAny(lower, "classify", "categorise", "categorize", "sentiment", "is this"):
+		return "classify"
+	case containsAny(lower, "format", "reformat", "convert", "transform to"):
+		return "format"
+	case containsAny(lower, "rewrite", "rephrase", "improve this", "make this"):
+		return "rewrite"
+	case containsAny(lower, "explain", "what is", "how does", "why does", "describe"):
+		return "explain"
+	case containsAny(lower, "write a function", "write a script", "simple function", "helper"):
+		return "simple-code"
+	case containsAny(lower, "refactor", "redesign", "architect", "multi-file", "across files"):
+		return "complex-code"
+	case containsAny(lower, "plan", "strategy", "trade-off", "tradeoff", "decide", "should we"):
+		return "reason"
+	default:
+		return "explain"
+	}
+}
+
+func containsAny(s string, substrs ...string) bool {
+	for _, sub := range substrs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func printResult(result *router.Result, format string) {
 	if strings.EqualFold(format, "json") {
 		out := map[string]any{
 			"output":        result.Output,
@@ -141,17 +237,33 @@ func cmdHealth(r *router.Router) {
 	}
 }
 
+func readStdin() (string, error) {
+	stat, _ := os.Stdin.Stat()
+	if (stat.Mode() & os.ModeCharDevice) != 0 {
+		return "", nil
+	}
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, `llm-router — intelligent LLM task router
 
 Commands:
-  route   Route a task to the best model
+  route   Route a task to the best model (explicit category)
+  ask     Natural language — auto-classifies and routes
   stats   Show benchmark statistics
   health  Check model availability
 
 Examples:
   llm-router route --task summarise --input "long text here"
   llm-router route --task extract --input-file data.txt --format json
+  llm-router ask "summarise this README" < README.md
+  llm-router ask "explain what this function does" --format json
+  echo "some text" | llm-router ask "extract all email addresses"
   llm-router stats
   llm-router health`)
 }

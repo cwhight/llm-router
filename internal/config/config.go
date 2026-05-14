@@ -44,7 +44,24 @@ type MetricsConfig struct {
 	Addr    string `yaml:"addr"`
 }
 
+func DefaultConfigPath() string {
+	if v := os.Getenv("LLM_ROUTER_CONFIG"); v != "" {
+		return v
+	}
+	home, _ := os.UserHomeDir()
+	return home + "/.config/llm-router/config.yaml"
+}
+
+func DefaultBenchmarksPath() string {
+	home, _ := os.UserHomeDir()
+	return home + "/.config/llm-router/benchmarks/results.jsonl"
+}
+
 func Load(path string) (*Config, error) {
+	if path == "" {
+		path = DefaultConfigPath()
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
