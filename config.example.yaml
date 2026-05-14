@@ -1,0 +1,46 @@
+claude:
+  api_key: "${ANTHROPIC_API_KEY}"
+  default_model: claude-sonnet-4-6
+  opus_model: claude-opus-4-6
+
+ollama:
+  host: "http://localhost:11434"
+  models:
+    small: "llama3.1:8b"
+    large: "llama3.1:70b"
+
+routing:
+  # Quality threshold (0-10) — if a model scores below this for a category,
+  # the category gets bumped to the next tier
+  quality_threshold: 7
+
+  # Default routing rules (overridden by benchmark data)
+  defaults:
+    summarise: ollama:small
+    extract: ollama:small
+    classify: ollama:small
+    format: ollama:small
+    rewrite: ollama:large
+    simple-code: ollama:large
+    explain: ollama:large
+    complex-code: claude:default
+    reason: claude:opus
+    agent: claude:opus
+
+  # Categories that should never be routed to Ollama
+  claude_only:
+    - agent
+    - reason
+
+benchmarks:
+  # How many tasks to sample for quality scoring
+  sample_rate: 0.1
+  # Path to benchmark results
+  results_file: "benchmarks/results.jsonl"
+  # Re-evaluate routing after this many results per category
+  reeval_threshold: 50
+
+metrics:
+  # Expose Prometheus metrics
+  enabled: true
+  addr: ":2113"
