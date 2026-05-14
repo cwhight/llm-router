@@ -71,7 +71,7 @@ func (c *Client) Generate(ctx context.Context, model, system, prompt string) (*R
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", c.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("anthropic-version", "2024-06-01")
 
 	resp, err := c.client.Do(req)
 	if err != nil {

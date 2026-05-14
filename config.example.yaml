@@ -1,7 +1,7 @@
 claude:
   api_key: "${ANTHROPIC_API_KEY}"
   default_model: claude-sonnet-4-6
-  opus_model: claude-opus-4-6
+  opus_model: claude-opus-4-7
 
 ollama:
   host: "http://localhost:11434"
@@ -20,9 +20,9 @@ routing:
     extract: ollama:small
     classify: ollama:small
     format: ollama:small
-    rewrite: ollama:large
-    simple-code: ollama:large
-    explain: ollama:large
+    rewrite: ollama:small
+    simple-code: ollama:small
+    explain: ollama:small
     complex-code: claude:default
     reason: claude:opus
     agent: claude:opus

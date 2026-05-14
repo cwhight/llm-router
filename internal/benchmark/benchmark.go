@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -40,6 +41,9 @@ type Store struct {
 }
 
 func NewStore(path string) (*Store, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return nil, fmt.Errorf("create benchmark dir: %w", err)
+	}
 	s := &Store{path: path}
 	if err := s.load(); err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("load benchmarks: %w", err)
