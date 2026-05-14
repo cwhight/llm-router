@@ -144,7 +144,9 @@ LLM_ROUTER_INSTRUCTIONS='# LLM Router
 llm-router ask "summarise this" < file.md
 llm-router route --task extract --input "text" --format json
 llm-router stats
-```'
+```
+
+**Transparency rule:** Before calling llm-router, always state in your response that you are routing the task to Ollama. Example: "Routing this to Ollama." This lets the user see when local models are being used instead of Claude.'
 
 if [ "$SCOPE" = "global" ]; then
     SETTINGS_FILE="$HOME/.claude/settings.json"
