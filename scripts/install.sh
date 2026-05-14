@@ -137,48 +137,22 @@ echo "Configuring Claude Code ($SCOPE)..."
 
 LLM_ROUTER_INSTRUCTIONS='## Cost-Aware Model Routing
 
-Opus is expensive. Always route code generation to the cheapest model that can do the job correctly.
+Route code generation to cheaper models when the generated code is longer than the prompt needed to specify it. If the prompt would be longer than the code, just write it directly.
 
-### Tier hierarchy (cheapest first):
-1. **Ollama via llm-router** ($0) — pure additive edits, struct fields, boilerplate, prose
-2. **Haiku subagent** (cheap) — formulaic code gen needing some judgment, test scaffolding, env var fields
-3. **Sonnet subagent** (mid) — when placement/correctness matters but does not need architectural reasoning
-4. **Opus (you, direct)** (expensive) — architecture, investigation, multi-file reasoning, correctness-sensitive logic
+**Rule of thumb:** <20 lines of code — write directly. 20+ lines of repetitive/mechanical code — route cheaper.
 
-### How to route:
+**Tiers (cheapest first):**
+1. **Ollama** ($0) — prose, summaries, extraction → `LLM_ROUTER_BIN route --task simple-code --input "..."`
+2. **Haiku subagent** — mechanical code gen with a precise spec (20+ lines) → `Agent({ model: "haiku", ... })`
+3. **Sonnet subagent** — code gen needing context reasoning (20+ lines) → `Agent({ model: "sonnet", ... })`
+4. **Opus (direct)** — architecture, investigation, short edits, anything where the prompt would be longer than the code
 
-**Haiku/Sonnet subagents** — use the Agent tool with `model: "haiku"` or `model: "sonnet"`:
-```
-Agent({
-  description: "Generate struct fields",
-  model: "haiku",
-  prompt: "Given this Go struct: [paste]. Add these fields: [spec]. Output only the complete struct."
-})
-```
-
-**Ollama via llm-router** (installed at LLM_ROUTER_BIN):
-```bash
-LLM_ROUTER_BIN route --task simple-code --input "write a function that..."
-LLM_ROUTER_BIN route --task summarise --input "long text"
-LLM_ROUTER_BIN ask "summarise this" < file.md
-```
-
-### Decision rules:
-- **Opus plans, cheaper models execute.** Read the codebase, decide what changes go where, write the precise prompt, then hand actual code writing to a cheaper model.
-- **Always verify output** from cheaper models before applying — especially placement relative to error paths, early returns, and resource cleanup.
-- **Ollama** for: summaries, extraction, formatting, classification, simple explanations, prose (PR descriptions, commit messages)
-- **Haiku** for: mechanical code gen where you give a precise spec and expect correct output
-- **Sonnet** for: code gen where the model needs to reason about context
-- **Stay on Opus** for: reading/exploring code, architecture decisions, complex reasoning, deciding WHAT to change and WHERE, tool calls
-
-### After every subagent or Ollama call, record the result:
+**After every subagent or Ollama call**, record the result:
 ```bash
 LLM_ROUTER_BIN record --category simple-code --model claude:haiku --quality 9 --latency 3.5
 ```
-Quality: 0-10 based on whether output was usable without correction.
 
-### Transparency rule:
-Before routing to a cheaper model, state which model and why.'
+**Hooks are watching.** Every Edit/Write and Agent call is logged to ~/.claude/model-discipline.log.'
 
 if [ "$SCOPE" = "global" ]; then
     SETTINGS_FILE="$HOME/.claude/settings.json"
