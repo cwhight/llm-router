@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -29,18 +30,20 @@ type Result struct {
 }
 
 type Router struct {
-	cfg    *config.Config
-	ollama *ollama.Client
-	claude *claude.Client
-	bench  *benchmark.Store
+	cfg     *config.Config
+	ollama  *ollama.Client
+	claude  *claude.Client
+	bench   *benchmark.Store
+	logPath string
 }
 
 func New(cfg *config.Config, bench *benchmark.Store) *Router {
 	return &Router{
-		cfg:    cfg,
-		ollama: ollama.NewClient(cfg.Ollama.Host),
-		claude: claude.NewClient(cfg.Claude.APIKey),
-		bench:  bench,
+		cfg:     cfg,
+		ollama:  ollama.NewClient(cfg.Ollama.Host),
+		claude:  claude.NewClient(cfg.Claude.APIKey),
+		bench:   bench,
+		logPath: config.DefaultRoutingLogPath(),
 	}
 }
 
@@ -79,7 +82,34 @@ func (r *Router) Route(ctx context.Context, task Task) (*Result, error) {
 		CostUSD:      result.CostUSD,
 	})
 
+	r.writeLog(task, result)
+
 	return result, nil
+}
+
+func (r *Router) writeLog(task Task, result *Result) {
+	snippet := task.Input
+	if len(snippet) > 60 {
+		snippet = snippet[:60] + "…"
+	}
+	// replace newlines so each log entry is one line
+	snippet = strings.NewReplacer("\n", " ", "\r", "").Replace(snippet)
+
+	line := fmt.Sprintf("%s  %-14s %-16s  %5dms  $%.6f  %q\n",
+		time.Now().Format("2006-01-02 15:04:05"),
+		task.Category,
+		result.Model,
+		result.Latency.Milliseconds(),
+		result.CostUSD,
+		snippet,
+	)
+
+	f, err := os.OpenFile(r.logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(line)
 }
 
 func (r *Router) selectModel(category string) string {

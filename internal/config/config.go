@@ -57,6 +57,11 @@ func DefaultBenchmarksPath() string {
 	return home + "/.config/llm-router/benchmarks/results.jsonl"
 }
 
+func DefaultRoutingLogPath() string {
+	home, _ := os.UserHomeDir()
+	return home + "/.config/llm-router/routing.log"
+}
+
 func Load(path string) (*Config, error) {
 	if path == "" {
 		path = DefaultConfigPath()
