@@ -103,14 +103,16 @@ go mod tidy
 go build -o llm-router ./cmd/router/
 
 if sudo -n true 2>/dev/null; then
-    echo "Installing to /usr/local/bin/llm-router..."
-    sudo cp llm-router /usr/local/bin/llm-router
-    sudo chmod +x /usr/local/bin/llm-router
+    INSTALL_PATH="/usr/local/bin/llm-router"
+    echo "Installing to $INSTALL_PATH..."
+    sudo cp llm-router "$INSTALL_PATH"
+    sudo chmod +x "$INSTALL_PATH"
 else
-    echo "Installing to ~/bin/llm-router (no sudo)..."
+    INSTALL_PATH="$HOME/bin/llm-router"
+    echo "Installing to $INSTALL_PATH (no sudo)..."
     mkdir -p "$HOME/bin"
-    cp llm-router "$HOME/bin/llm-router"
-    chmod +x "$HOME/bin/llm-router"
+    cp llm-router "$INSTALL_PATH"
+    chmod +x "$INSTALL_PATH"
     if ! echo "$PATH" | grep -q "$HOME/bin"; then
         echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.zshrc"
         echo "  Added ~/bin to PATH in ~/.zshrc"
@@ -169,6 +171,12 @@ LLM_ROUTER_BIN ask "summarise this" < file.md
 - **Sonnet** for: code gen where the model needs to reason about context
 - **Stay on Opus** for: reading/exploring code, architecture decisions, complex reasoning, deciding WHAT to change and WHERE, tool calls
 
+### After every subagent or Ollama call, record the result:
+```bash
+LLM_ROUTER_BIN record --category simple-code --model claude:haiku --quality 9 --latency 3.5
+```
+Quality: 0-10 based on whether output was usable without correction.
+
 ### Transparency rule:
 Before routing to a cheaper model, state which model and why.'
 
@@ -182,41 +190,63 @@ else
     mkdir -p ".claude"
 fi
 
-# Add permissions if not present
-if [ -f "$SETTINGS_FILE" ]; then
-    if ! grep -q "llm-router" "$SETTINGS_FILE"; then
-        # Use python to safely add to the allow array
-        python3 -c "
-import json
-with open('$SETTINGS_FILE') as f:
-    data = json.load(f)
+# Add permissions and hooks
+python3 -c "
+import json, os
+
+path = '$SETTINGS_FILE'
+if os.path.exists(path):
+    with open(path) as f:
+        data = json.load(f)
+else:
+    data = {}
+
+# Permissions
 perms = data.setdefault('permissions', {}).setdefault('allow', [])
 for p in ['Bash(llm-router:*)', 'Bash(ollama:*)']:
     if p not in perms:
         perms.append(p)
-with open('$SETTINGS_FILE', 'w') as f:
+
+# Hooks
+hooks = data.setdefault('hooks', {})
+post = hooks.setdefault('PostToolUse', [])
+
+# Check if our hooks already exist
+has_edit_hook = any(h.get('matcher') == 'Write|Edit' for h in post)
+has_agent_hook = any(h.get('matcher') == 'Agent' for h in post)
+
+if not has_edit_hook:
+    post.append({
+        'matcher': 'Write|Edit',
+        'hooks': [{
+            'type': 'command',
+            'command': 'jq -r \'\"[\" + (now | todate) + \"] DIRECT_WRITE \" + (.tool_input.file_path // \"unknown\")\' >> ~/.claude/model-discipline.log',
+            'async': True
+        }]
+    })
+
+if not has_agent_hook:
+    post.append({
+        'matcher': 'Agent',
+        'hooks': [
+            {
+                'type': 'command',
+                'command': 'jq -r \'\"[\" + (now | todate) + \"] SUBAGENT model=\" + (.tool_input.model // \"opus-default\") + \" desc=\" + (.tool_input.description // \"unknown\")\' >> ~/.claude/model-discipline.log',
+                'async': True
+            },
+            {
+                'type': 'command',
+                'command': 'jq -r \'\"claude:\" + (.tool_input.model // \"opus-default\") + \" \" + (((.tool_response.duration_ms // 0) / 1000) | tostring)\' | { read -r model latency; $INSTALL_PATH record --category simple-code --model \"\\\$model\" --quality 8 --latency \"\\\$latency\"; } 2>/dev/null || true',
+                'async': True
+            }
+        ]
+    })
+
+with open(path, 'w') as f:
     json.dump(data, f, indent=2)
 "
-        echo "✓ Added llm-router permissions to $SETTINGS_FILE"
-    else
-        echo "✓ Permissions already present in $SETTINGS_FILE"
-    fi
-else
-    cat > "$SETTINGS_FILE" <<'SETTINGS'
-{
-  "permissions": {
-    "allow": [
-      "Bash(llm-router:*)",
-      "Bash(ollama:*)"
-    ]
-  }
-}
-SETTINGS
-    echo "✓ Created $SETTINGS_FILE with llm-router permissions"
-fi
+echo "✓ Added permissions and hooks to $SETTINGS_FILE"
 
-# Add instructions to CLAUDE.md (substitute binary path)
-INSTALL_PATH="/usr/local/bin/llm-router"
 INSTRUCTIONS_RESOLVED="${LLM_ROUTER_INSTRUCTIONS//LLM_ROUTER_BIN/$INSTALL_PATH}"
 
 if [ -f "$CLAUDE_MD" ]; then
@@ -245,7 +275,7 @@ fi
 echo ""
 echo "=== Installed ($SCOPE) ==="
 echo ""
-echo "  Binary:      /usr/local/bin/llm-router"
+echo "  Binary:      $INSTALL_PATH"
 echo "  Config:      $CONFIG_DIR/config.yaml"
 echo "  Benchmarks:  $CONFIG_DIR/benchmarks/"
 echo "  Claude Code: $SETTINGS_FILE"
