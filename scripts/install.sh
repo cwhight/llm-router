@@ -99,11 +99,23 @@ if ! command -v go &> /dev/null; then
 fi
 
 cd "$REPO_DIR"
+go mod tidy
 go build -o llm-router ./cmd/router/
 
-echo "Installing to /usr/local/bin/llm-router..."
-sudo cp llm-router /usr/local/bin/llm-router
-sudo chmod +x /usr/local/bin/llm-router
+if sudo -n true 2>/dev/null; then
+    echo "Installing to /usr/local/bin/llm-router..."
+    sudo cp llm-router /usr/local/bin/llm-router
+    sudo chmod +x /usr/local/bin/llm-router
+else
+    echo "Installing to ~/bin/llm-router (no sudo)..."
+    mkdir -p "$HOME/bin"
+    cp llm-router "$HOME/bin/llm-router"
+    chmod +x "$HOME/bin/llm-router"
+    if ! echo "$PATH" | grep -q "$HOME/bin"; then
+        echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.zshrc"
+        echo "  Added ~/bin to PATH in ~/.zshrc"
+    fi
+fi
 rm llm-router
 
 # ── 4. Create config ─────────────────────────────────────────────
