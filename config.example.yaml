@@ -14,6 +14,7 @@ ollama:
 routing:
   # Quality threshold (0-10) — if a model scores below this for a category,
   # the category gets bumped to the next tier
+  # Quality threshold (0-10) — bump to next tier if avg quality falls below this
   quality_threshold: 7
 
   # Default routing rules (overridden by benchmark data)
@@ -26,15 +27,16 @@ routing:
     rewrite: ollama:small
     simple-code: ollama:small
     explain: ollama:small
-    complex-code: claude:default
+    complex-code: ollama:small
     reason: claude:opus
     agent: claude:default
 
   # Categories that should never be routed to Ollama
+  # ollama:small (gpt-oss:120b-cloud) handles complex-code at avg quality 8.0
+  # Only reserve Claude for open-ended reasoning and multi-agent orchestration
   claude_only:
     - agent
     - reason
-    - complex-code
 
 benchmarks:
   # How many tasks to sample for quality scoring
