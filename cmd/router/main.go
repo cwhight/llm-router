@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -251,6 +252,17 @@ func printResult(result *router.Result, format string) {
 	}
 }
 
+type statsRow struct {
+	category string
+	model    string
+	count    int
+	quality  float64
+	latency  float64
+	cost     float64
+	total    float64
+	best     bool
+}
+
 func cmdStats(r *router.Router) {
 	stats := r.Stats()
 
@@ -259,18 +271,42 @@ func cmdStats(r *router.Router) {
 		return
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "CATEGORY\tMODEL\tCOUNT\tAVG QUALITY\tAVG LATENCY\tAVG COST\tTOTAL COST\tBEST")
-
+	var rows []statsRow
 	for cat, cs := range stats {
 		for model, st := range cs.ModelStats {
-			best := ""
-			if model == cs.BestModel {
-				best = "<--"
-			}
-			fmt.Fprintf(w, "%s\t%s\t%d\t%.1f\t%.2fs\t$%.6f\t$%.4f\t%s\n",
-				cat, model, st.Count, st.AvgQuality, st.AvgLatency, st.AvgCost, st.TotalCost, best)
+			rows = append(rows, statsRow{
+				category: cat,
+				model:    model,
+				count:    st.Count,
+				quality:  st.AvgQuality,
+				latency:  st.AvgLatency,
+				cost:     st.AvgCost,
+				total:    st.TotalCost,
+				best:     model == cs.BestModel,
+			})
 		}
+	}
+
+	// Sort: count desc, then category asc, then model asc
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].count != rows[j].count {
+			return rows[i].count > rows[j].count
+		}
+		if rows[i].category != rows[j].category {
+			return rows[i].category < rows[j].category
+		}
+		return rows[i].model < rows[j].model
+	})
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "CATEGORY\tMODEL\tCOUNT\tAVG QUALITY\tAVG LATENCY\tAVG COST\tTOTAL COST\tBEST")
+	for _, row := range rows {
+		best := ""
+		if row.best {
+			best = "<--"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%d\t%.1f\t%.2fs\t$%.6f\t$%.4f\t%s\n",
+			row.category, row.model, row.count, row.quality, row.latency, row.cost, row.total, best)
 	}
 	w.Flush()
 }
