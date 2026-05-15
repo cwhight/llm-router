@@ -1,41 +1,42 @@
 # llm-router
 
-Intelligent LLM task router. Claude for planning and heavy thinking, Ollama for bulk work. Self-benchmarking — learns over time which model is best for which task type.
+Intelligent LLM task router. Routes bulk prose and code tasks to a fast cloud model via Ollama, reserving Claude for planning, reasoning, and architecture. Self-benchmarking — learns which model performs best per task type.
 
 ## Concept
 
 ```
 Claude Code (planning, reasoning, architecture)
     │
-    ├─ Complex task → stays on Claude
+    ├─ Needs multi-file context or architecture reasoning → stays on Claude
     │
-    └─ Simple task → routed to Ollama (local, free)
+    └─ Self-contained task → routed via Ollama (cloud model)
         │
-        ├─ summarise this file
-        ├─ extract JSON from this text
-        ├─ format this code
-        ├─ classify this input
-        └─ generate a simple function
+        ├─ summarise this file          → ollama:small
+        ├─ extract JSON from text       → ollama:small
+        ├─ write a Go function          → ollama:small
+        ├─ write a React component      → ollama:small
+        ├─ write a ticket description   → ollama:small
+        └─ rewrite this copy            → ollama:small
 ```
 
 ## Why
 
-Claude is excellent at complex reasoning but expensive for bulk operations. Local models (Llama 3.1 8B/70B via Ollama) handle simple tasks well at zero marginal cost. The router automatically directs each task to the cheapest model that can do it well.
+Claude is expensive for bulk operations. With `gpt-oss:120b-cloud` routed through a local Ollama proxy, you get a capable 120B model at near-zero cost for self-contained tasks. The router benchmarks each model per category and promotes/demotes based on observed quality. Everything except open-ended reasoning and agent orchestration defaults to the cloud model.
 
 ## Task Classification
 
-| Category | Complexity | Default Route | Examples |
+| Category | Default Route | Benchmarked Quality | Examples |
 |---|---|---|---|
-| `summarise` | Low | Ollama 8B | Summarise a file, condense notes |
-| `extract` | Low | Ollama 8B | Pull JSON from text, parse structured data |
-| `classify` | Low | Ollama 8B | Sentiment analysis, categorisation |
-| `format` | Low | Ollama 8B | Reformat code, convert markdown |
-| `simple-code` | Medium | Ollama 70B | Single function, simple script |
-| `rewrite` | Medium | Ollama 70B | Rewrite text, change tone |
-| `explain` | Medium | Claude Haiku | Explain a concept, document code |
-| `complex-code` | High | Claude Sonnet | Multi-file changes, refactoring |
-| `reason` | High | Claude Opus | Architecture, planning, trade-offs |
-| `agent` | High | Claude Opus | Multi-step tool use, decisions |
+| `summarise` | `ollama:small` | 9.0 | Summarise a file, condense notes |
+| `extract` | `ollama:small` | 9.0 | Pull JSON from text, parse structured data |
+| `classify` | `ollama:small` | 9.0 | Sentiment analysis, categorisation |
+| `format` | `ollama:small` | 9.0 | Reformat code, convert to snake_case |
+| `rewrite` | `ollama:small` | 9.0 | Rewrite text, improve copy |
+| `explain` | `ollama:small` | 9.0 | Explain a concept, document code |
+| `simple-code` | `ollama:small` | 8.0 | Single function, simple script |
+| `complex-code` | `ollama:small` | 8.0 | Multi-step handlers, middleware, transactions |
+| `reason` | `claude:opus` | — | Architecture, planning, trade-offs |
+| `agent` | `claude:default` | — | Multi-step tool use, decisions |
 
 ## Self-Improving Benchmarks
 
@@ -57,60 +58,80 @@ cd llm-router
 
 # Project — only the current repo's Claude Code sessions use llm-router
 ./scripts/install.sh --project
-
-# Interactive — prompts you to choose
-./scripts/install.sh
 ```
 
-The installer:
-1. Installs Ollama (if not present)
-2. Pulls llama3.1:8b model
-3. Builds and installs `llm-router` binary to `/usr/local/bin`
-4. Creates config at `~/.config/llm-router/config.yaml`
-5. Adds permissions and instructions to Claude Code settings (global or project)
+The installer builds and installs the `llm-router` binary, creates config at `~/.config/llm-router/config.yaml`, and wires up Claude Code settings.
 
-**Global install** writes to `~/.claude/settings.json` and `~/.claude/CLAUDE.md` — every Claude Code instance on your machine sees it.
-
-**Project install** writes to `.claude/settings.json` and `CLAUDE.md` in the current repo — only that project's sessions see it.
-
-Optional: pull the 70B model for higher quality on medium-complexity tasks:
+Set your Ollama cloud API key:
 ```bash
-ollama pull llama3.1:70b  # needs 40GB+ RAM
+export OLLAMA_API_KEY="your-key-here"
+```
+
+Or add to `~/.config/llm-router/config.yaml`:
+```yaml
+ollama:
+  host: "http://localhost:11434"
+  api_key: "${OLLAMA_API_KEY}"
+  models:
+    small: "gpt-oss:120b-cloud"
+    large: "gpt-oss:120b-cloud"
 ```
 
 ## Usage
 
 ### CLI
 ```bash
-# Route a task (auto-selects best model for category)
-llm-router route --task "summarise" --input "$(cat long-file.md)"
+# Route a task — always use explicit --task, not llm-router ask
+llm-router route --task summarise --input "$(cat long-file.md)"
+llm-router route --task simple-code --input "Write a Go handler that..."
+llm-router route --task rewrite --input "Improve this copy: ..."
+llm-router route --task complex-code --input "Write a pgx transaction that..."
 
-# Override the model (skip auto-routing)
-llm-router route --task "simple-code" --model claude:haiku --input "..."
-llm-router route --task "explain" --model ollama:small --input "..."
+# Override the model
+llm-router route --task simple-code --model ollama:small --input "..."
 
-# Natural language (auto-classifies category)
-llm-router ask "summarise this README" < README.md
-
-# View routing stats
+# View routing stats (sorted by call count)
 llm-router stats
+
+# Check health
+llm-router health
 ```
 
-### As a library (Go)
-```go
-r := router.New(config)
-result, err := r.Route(ctx, router.Task{
-    Category: "summarise",
-    Input:    fileContents,
-})
-// result.Output, result.Model, result.Tokens, result.Latency
-```
+**Do not use `llm-router ask`** — it auto-classifies unreliably and stats will be miscategorised. Always name the task explicitly with `--task`.
 
-### From Claude Code
-Claude Code agents can shell out to the router for bulk tasks:
+### From Claude Code agents
 ```bash
-llm-router route --task "extract" --input "$DATA" --format json
+export PATH="$HOME/bin:$PATH"
+llm-router route --task rewrite --input "Write a ticket description for: [scope]"
+llm-router record --category rewrite --model ollama:small --quality 8 --latency 4.2
 ```
+
+## Routing Enforcement Hook
+
+`hooks/enforce-routing.py` is a Claude Code PostToolUse hook that warns when substantial code or prose (>20 lines of `.go/.ts/.tsx/.md/.sql`) is written without a recent llm-router call.
+
+Add to `~/.claude/settings.json`:
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /path/to/hooks/enforce-routing.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Output:
+- `✓ handler.go (42 lines) — routed 8s ago via ollama`
+- `⚠ handler.go (42 lines) — last llm-router call was 180s ago. Route this through llm-router before writing.`
 
 ## Architecture
 
@@ -119,9 +140,11 @@ cmd/router/          → CLI entrypoint
 internal/
   router/            → Task classification and routing logic
   benchmark/         → Benchmark runner and analysis
-  ollama/            → Ollama API client
+  ollama/            → Ollama API client (supports api_key for cloud models)
   claude/            → Claude API client
   config/            → Configuration loading
+hooks/
+  enforce-routing.py → Claude Code PostToolUse enforcement hook
 benchmarks/          → Benchmark results (JSONL)
 scripts/             → Setup and utility scripts
 config.example.yaml  → Example configuration
