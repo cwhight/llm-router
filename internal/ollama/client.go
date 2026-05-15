@@ -12,6 +12,7 @@ import (
 
 type Client struct {
 	host   string
+	apiKey string
 	client *http.Client
 }
 
@@ -37,9 +38,10 @@ type Result struct {
 	Latency      time.Duration
 }
 
-func NewClient(host string) *Client {
+func NewClient(host, apiKey string) *Client {
 	return &Client{
 		host:   host,
+		apiKey: apiKey,
 		client: &http.Client{Timeout: 5 * time.Minute},
 	}
 }
@@ -62,6 +64,9 @@ func (c *Client) Generate(ctx context.Context, model, system, prompt string) (*R
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -92,6 +97,9 @@ func (c *Client) Healthy(ctx context.Context) bool {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.host+"/api/tags", nil)
 	if err != nil {
 		return false
+	}
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {

@@ -25,6 +25,7 @@ type ClaudeConfig struct {
 
 type OllamaConfig struct {
 	Host   string            `yaml:"host"`
+	APIKey string            `yaml:"api_key"`
 	Models map[string]string `yaml:"models"`
 }
 

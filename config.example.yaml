@@ -6,9 +6,10 @@ claude:
 
 ollama:
   host: "http://localhost:11434"
+  api_key: "${OLLAMA_API_KEY}"
   models:
-    small: "llama3.1:8b"
-    large: "llama3.1:70b"
+    small: "gpt-oss:120b-cloud"
+    large: "gpt-oss:120b-cloud"
 
 routing:
   # Quality threshold (0-10) — if a model scores below this for a category,
@@ -22,17 +23,18 @@ routing:
     extract: ollama:small
     classify: ollama:small
     format: ollama:small
-    rewrite: ollama:large
-    simple-code: ollama:large
-    explain: claude:haiku
-    complex-code: claude:sonnet
+    rewrite: ollama:small
+    simple-code: ollama:small
+    explain: ollama:small
+    complex-code: claude:default
     reason: claude:opus
-    agent: claude:opus
+    agent: claude:default
 
   # Categories that should never be routed to Ollama
   claude_only:
     - agent
     - reason
+    - complex-code
 
 benchmarks:
   # How many tasks to sample for quality scoring

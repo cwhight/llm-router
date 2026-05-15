@@ -41,7 +41,7 @@ type Router struct {
 func New(cfg *config.Config, bench *benchmark.Store) *Router {
 	return &Router{
 		cfg:     cfg,
-		ollama:  ollama.NewClient(cfg.Ollama.Host),
+		ollama:  ollama.NewClient(cfg.Ollama.Host, cfg.Ollama.APIKey),
 		claude:  claude.NewClient(cfg.Claude.APIKey),
 		bench:   bench,
 		logPath: config.DefaultRoutingLogPath(),
@@ -66,16 +66,7 @@ func (r *Router) Route(ctx context.Context, task Task) (*Result, error) {
 	}
 
 	if err != nil {
-		if strings.HasPrefix(model, "ollama:") {
-			fmt.Printf("[router] ollama failed, falling back to claude: %v\n", err)
-			model = "claude:" + r.cfg.Claude.DefaultModel
-			result, err = r.routeClaude(ctx, model, task)
-			if err != nil {
-				return nil, fmt.Errorf("claude fallback: %w", err)
-			}
-		} else {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	_ = r.bench.Record(benchmark.Result{
