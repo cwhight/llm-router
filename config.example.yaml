@@ -6,34 +6,34 @@ claude:
 
 ollama:
   host: "http://localhost:11434"
+  # Ollama cloud API key — sign in at https://ollama.com to get yours
   api_key: "${OLLAMA_API_KEY}"
   models:
-    small: "gpt-oss:120b-cloud"
-    large: "gpt-oss:120b-cloud"
+    small: "qwen3-coder-next:cloud"    # 80B, ~7s, code-optimised, 262k ctx (free tier)
+    large: "devstral-2:123b-cloud"     # 123B, ~8s, Mistral coding specialist, 262k ctx (free tier)
+    general: "gpt-oss:120b-cloud"      # 117B, thinking capability, general prose/reasoning (free tier)
 
 routing:
   # Quality threshold (0-10) — if a model scores below this for a category,
   # the category gets bumped to the next tier
-  # Quality threshold (0-10) — bump to next tier if avg quality falls below this
   quality_threshold: 7
 
   # Default routing rules (overridden by benchmark data)
-  # Tier order: ollama:small < ollama:large < claude:haiku < claude:sonnet < claude:opus
+  # All ollama tiers use Ollama cloud models — free, no local GPU needed
   defaults:
-    summarise: ollama:small
-    extract: ollama:small
-    classify: ollama:small
+    summarise: ollama:general
+    extract: ollama:general
+    classify: ollama:general
     format: ollama:small
-    rewrite: ollama:small
+    rewrite: ollama:general
     simple-code: ollama:small
-    explain: ollama:small
-    complex-code: ollama:small
+    explain: ollama:general
+    complex-code: ollama:large
+    wireframe-prose: ollama:general
     reason: claude:opus
     agent: claude:default
 
-  # Categories that should never be routed to Ollama
-  # ollama:small (gpt-oss:120b-cloud) handles complex-code at avg quality 8.0
-  # Only reserve Claude for open-ended reasoning and multi-agent orchestration
+  # Categories that always use Claude — require tool use or multi-step reasoning
   claude_only:
     - agent
     - reason

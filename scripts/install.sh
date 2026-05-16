@@ -81,13 +81,32 @@ if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
     sleep 3
 fi
 
-# Pull model
-if ! ollama list 2>/dev/null | grep -q "llama3.1:8b"; then
-    echo "Pulling llama3.1:8b (4.7GB)..."
-    ollama pull llama3.1:8b
-else
-    echo "✓ llama3.1:8b available"
+# Set Ollama to start at login (macOS)
+if [[ "$OSTYPE" == "darwin"* ]] && command -v brew &>/dev/null; then
+    if ! brew services list 2>/dev/null | grep -q "ollama.*started"; then
+        echo "Configuring Ollama to start at login..."
+        brew services start ollama 2>/dev/null || true
+    else
+        echo "✓ Ollama configured to start at login"
+    fi
 fi
+
+# Pull cloud routing models (manifest-only, no local GPU needed)
+# These are free-tier Ollama cloud models — requires OLLAMA_API_KEY
+if [ -z "${OLLAMA_API_KEY:-}" ]; then
+    echo "⚠ OLLAMA_API_KEY not set — cloud models will fail"
+    echo "  Sign in at https://ollama.com and set OLLAMA_API_KEY in your environment"
+fi
+
+CLOUD_MODELS=("qwen3-coder-next:cloud" "devstral-2:123b-cloud" "gpt-oss:120b-cloud")
+for model in "${CLOUD_MODELS[@]}"; do
+    if ollama list 2>/dev/null | grep -q "$(echo "$model" | cut -d: -f1)"; then
+        echo "✓ $model available"
+    else
+        echo "Pulling $model..."
+        ollama pull "$model" 2>&1 || echo "  ✗ Failed — check OLLAMA_API_KEY"
+    fi
+done
 
 # ── 3. Build and install binary ──────────────────────────────────
 echo ""
@@ -260,5 +279,7 @@ echo "  llm-router ask 'summarise this README' < README.md"
 echo "  llm-router route --task extract --input 'text' --format json"
 echo "  llm-router stats"
 echo ""
-echo "Optional: pull the 70B model for better quality (needs 40GB+ RAM):"
-echo "  ollama pull llama3.1:70b"
+echo "Routing tiers (all free via Ollama cloud — no local GPU needed):"
+echo "  ollama:small   qwen3-coder-next:cloud (80B)   — simple-code, format"
+echo "  ollama:large   devstral-2:123b-cloud  (123B)  — complex-code"
+echo "  ollama:general gpt-oss:120b-cloud     (117B)  — prose, summarise, rewrite"
