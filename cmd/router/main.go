@@ -23,7 +23,7 @@ func main() {
 	}
 
 	configPath := envOrDefault("LLM_ROUTER_CONFIG", config.DefaultConfigPath())
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadWithProjectOverride(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
 		os.Exit(1)
