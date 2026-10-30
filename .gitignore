@@ -3,3 +3,4 @@ benchmarks/results.jsonl
 .env
 *.secret
 .DS_Store
+/llm-router
